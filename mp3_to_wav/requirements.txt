@@ -1,0 +1,4 @@
+pydub
+imageio-ffmpeg
+pyinstaller
+gTTS
