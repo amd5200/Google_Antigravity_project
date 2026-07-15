@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>AI Object Detection | Harry's VR</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #5ddcff;
+            --accent: #fe4066;
+            --bg: #0a0a0c;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --text: #e0e0e0;
+            --text-muted: #888;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(93, 220, 255, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(254, 64, 102, 0.05) 0%, transparent 40%);
+            margin: 0;
+            padding: 0;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            padding: 20px;
+            text-align: center;
+            background: rgba(10, 10, 12, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+
+        .main-container {
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        @media (min-width: 1024px) {
+            .main-container {
+                grid-template-columns: 3fr 1fr;
+            }
+        }
+
+        .detection-card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            padding-bottom: 75%;
+            /* 4:3 Aspect Ratio approx or custom */
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        #img {
+            display: none;
+            /* Hide original img, drawing on canvas */
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .status-badge {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--primary);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: pulse-ring 1.5s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% {
+                transform: scale(0.8);
+                opacity: 0.5;
+            }
+
+            50% {
+                transform: scale(1.2);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(0.8);
+                opacity: 0.5;
+            }
+        }
+
+        .control-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px;
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .resolution-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 8px;
+        }
+
+        .res-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text);
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .res-btn:hover,
+        .res-btn.active {
+            background: var(--primary);
+            color: #000;
+            border-color: var(--primary);
+            box-shadow: 0 0 15px rgba(93, 220, 255, 0.4);
+        }
+
+        .servo-controls {
+            display: grid;
+            grid-template-areas:
+                ". up ."
+                "left . right"
+                ". down .";
+            gap: 15px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        .servo-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text);
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .servo-btn:active {
+            transform: scale(0.9);
+            background: var(--accent);
+            color: #fff;
+            box-shadow: 0 0 20px rgba(254, 64, 102, 0.5);
+        }
+
+        #btn-up {
+            grid-area: up;
+        }
+
+        #btn-left {
+            grid-area: left;
+        }
+
+        #btn-right {
+            grid-area: right;
+        }
+
+        #btn-down {
+            grid-area: down;
+        }
+
+        .log-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 11px;
+            height: 100px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: #ace;
+        }
+
+        .loader-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s;
+        }
+
+        .loader {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(93, 220, 255, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loaded .loader-overlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loader" class="loader-overlay">
+        <div class="loader"></div>
+        <p style="margin-top: 20px; color: var(--primary);">Initializing AI Core...</p>
+    </div>
+
+    <header>
+        <h1>OBJECT DETECTION</h1>
+        <div class="brand">Powered By <span style="color: var(--accent);">@Harry's VR</span></div>
+    </header>
+
+    <main class="main-container">
+        <div class="detection-card">
+            <div class="status-badge" id="ai-status">
+                <div class="pulse"></div>
+                AI READY
+            </div>
+            <div class="video-wrapper">
+                <img id="img" alt="Stream Feed" crossorigin="anonymous" />
+                <canvas id="canvas"></canvas>
+            </div>
+            <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+                <div id="detection-msg" style="font-size: 13px; color: var(--text-muted);">Detecting objects...</div>
+                <div id="fps-display" style="font-size: 12px; font-weight: 300;">0 FPS</div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="card">
+                <div class="card-title">Servo Controls</div>
+                <div class="servo-controls">
+                    <button id="btn-up" onclick="servoMove('up')" class="servo-btn">↑</button>
+                    <button id="btn-left" onclick="servoMove('left')" class="servo-btn">←</button>
+                    <button id="btn-right" onclick="servoMove('right')" class="servo-btn">→</button>
+                    <button id="btn-down" onclick="servoMove('down')" class="servo-btn">↓</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Stream Resolution</div>
+                <div class="resolution-grid">
+                    <button onclick="change_resolution(10)" class="res-btn">UXGA</button>
+                    <button onclick="change_resolution(9)" class="res-btn">SXGA</button>
+                    <button onclick="change_resolution(6)" class="res-btn active">VGA</button>
+                    <button onclick="change_resolution(4)" class="res-btn">QVGA</button>
+                    <button onclick="change_resolution(3)" class="res-btn">HQVGA</button>
+                    <button onclick="change_resolution(0)" class="res-btn">QQVGA</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">System Log</div>
+                <div id="log" class="log-panel">
+                    System initialized.<br>
+                    Ready for stream connection...
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const baseHost = 'http://192.168.0.9';
+        const stream_url = `${baseHost}:81/stream`;
+        const stream_status_url = `${baseHost}/status`;
+        const servo1 = `${baseHost}/control?servo1=`;
+        const servo2 = `${baseHost}/control?servo2=`;
+
+        let servoValue = 4300;
+        let lastTimestamp = 0;
+        let model = null;
+
+        const img = document.getElementById("img");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d", { alpha: false });
+        const logPanel = document.getElementById("log");
+        const fpsDisplay = document.getElementById("fps-display");
+
+        function log(msg) {
+            const time = new Date().toLocaleTimeString([], { hour12: false });
+            logPanel.innerHTML += `[${time}] ${msg}<br>`;
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
+
+        // Initialize TF.js Backend
+        async function initTF() {
+            try {
+                await tf.setBackend('webgl');
+                await tf.ready();
+                log("TF.js Backend: " + tf.getBackend());
+            } catch (e) {
+                log("WebGL fallback to CPU...");
+                await tf.setBackend('cpu');
+            }
+        }
+
+        img.crossOrigin = "anonymous";
+        img.src = stream_url;
+
+        function stream_onload() {
+            return new Promise((resolve) => {
+                img.onload = () => {
+                    log("Stream feed connected.");
+                    resolve(true);
+                };
+                img.onerror = () => {
+                    log("Stream feed error.");
+                    resolve(false);
+                };
+                // Fallback for some stream types
+                setTimeout(() => resolve(true), 5000);
+            });
+        }
+
+        async function detectLoop() {
+            if (!model) return;
+
+            const now = performance.now();
+            const elapsed = now - lastTimestamp;
+            lastTimestamp = now;
+            const fps = Math.round(1000 / elapsed);
+            fpsDisplay.innerText = `${fps} FPS`;
+
+            try {
+                const predictions = await model.detect(img);
+                renderCanvas(predictions);
+            } catch (err) {
+                console.error("Detection Error:", err);
+            }
+
+            requestAnimationFrame(detectLoop);
+        }
+
+        function renderCanvas(predictions) {
+            // Synchronize canvas resolution with image natural size
+            if (img.naturalWidth > 0 && (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight)) {
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                log(`Sync: ${canvas.width}x${canvas.height}`);
+            }
+
+            if (canvas.width === 0) return;
+
+            // 1. Draw Stream Frame
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // 2. Draw Object Overlays
+            predictions.forEach((prediction) => {
+                const [x, y, width, height] = prediction.bbox;
+
+                // High-visibility Box
+                ctx.shadowColor = "black";
+                ctx.shadowBlur = 6;
+                ctx.strokeStyle = "#5ddcff";
+                ctx.lineWidth = 4;
+                ctx.strokeRect(x, y, width, height);
+                ctx.shadowBlur = 0;
+
+                // Label Background
+                ctx.fillStyle = "#5ddcff";
+                const text = `${prediction.class} ${Math.round(prediction.score * 100)}%`;
+                ctx.font = "bold 16px Outfit, sans-serif";
+                const textWidth = ctx.measureText(text).width;
+                ctx.fillRect(x, y - 30 > 0 ? y - 30 : y, textWidth + 12, 30);
+
+                // Label Text
+                ctx.fillStyle = "#000000";
+                ctx.fillText(text, x + 6, (y - 30 > 0 ? y - 30 : y) + 22);
+            });
+
+            // UI Feedback
+            const badge = document.getElementById('ai-status');
+            if (predictions.length > 0) {
+                badge.style.color = '#fe4066';
+                badge.querySelector('.pulse').style.background = '#fe4066';
+            } else {
+                badge.style.color = '#5ddcff';
+                badge.querySelector('.pulse').style.background = '#5ddcff';
+            }
+        }
+
+        async function change_resolution(x) {
+            const query = `${baseHost}/control?var=framesize&val=${x}`;
+            log(`Resolution -> Index ${x}`);
+            try {
+                await fetch(query);
+                document.querySelectorAll('.res-btn').forEach(btn => btn.classList.remove('active'));
+                // Note: event might be undefined in some contexts, but works in onclick
+                if (window.event) window.event.target.classList.add('active');
+            } catch (e) {
+                log("Res switch failed.");
+            }
+        }
+
+        async function servoMove(direction) {
+            const step = 200;
+            let url = '';
+
+            if (direction === 'up') { servoValue += step; url = servo2 + servoValue; }
+            else if (direction === 'down') { servoValue -= step; url = servo2 + servoValue; }
+            else if (direction === 'left') { servoValue -= step; url = servo1 + servoValue; }
+            else if (direction === 'right') { servoValue += step; url = servo1 + servoValue; }
+
+            log(`Servo ${direction}: ${servoValue}`);
+            if (navigator.vibrate) navigator.vibrate(30);
+
+            try { fetch(url); } catch (e) { log("Servo error"); }
+        }
+
+        async function bootstrap() {
+            await initTF();
+            log("Loading Model...");
+            model = await cocoSsd.load({ base: 'mobilenet_v2' });
+            log("Model Ready.");
+
+            await stream_onload();
+            document.body.classList.add('loaded');
+            lastTimestamp = performance.now();
+            detectLoop();
+        }
+
+        bootstrap();
+    </script>
+</body>
+
+</html>

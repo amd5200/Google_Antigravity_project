@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>USB Capture AI Detection (OFFLINE) | Harry's VR</title>
+    <!-- Offline scripts: Ensure these files exist in your 'js' folder -->
+    <script src="js/tf.min.js"></script>
+    <script src="js/coco-ssd.js"></script>
+    <!-- Local font fallback if internet is unavailable -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #5ddcff;
+            --accent: #fe4066;
+            --bg: #0a0a0c;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --text: #e0e0e0;
+            --text-muted: #888;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(93, 220, 255, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(254, 64, 102, 0.05) 0%, transparent 40%);
+            margin: 0;
+            padding: 0;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            padding: 20px;
+            text-align: center;
+            background: rgba(10, 10, 12, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+
+        .main-container {
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        @media (min-width: 1024px) {
+            .main-container {
+                grid-template-columns: 3fr 1fr;
+            }
+        }
+
+        .detection-card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            padding-bottom: 75%;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .video-wrapper:fullscreen {
+            padding-bottom: 0;
+            height: 100vh;
+            border-radius: 0;
+            background: #000;
+        }
+
+        .video-wrapper:-webkit-full-screen {
+            padding-bottom: 0;
+            height: 100vh;
+            border-radius: 0;
+            background: #000;
+        }
+
+        #video {
+            display: none;
+        }
+
+        .vr-split {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: row;
+            pointer-events: none;
+        }
+
+        .vr-split canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        .vr-split canvas#canvas-left {
+            display: block;
+        }
+
+        .video-wrapper:fullscreen .vr-split canvas,
+        .video-wrapper:-webkit-full-screen .vr-split canvas {
+            width: 50%;
+            display: block;
+        }
+
+        .status-badge {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--primary);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: pulse-ring 1.5s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0.5; }
+        }
+
+        .control-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px;
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .select-styled {
+            width: 100%;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text);
+            border-radius: 8px;
+            font-family: 'Outfit', sans-serif;
+            outline: none;
+            margin-bottom: 10px;
+        }
+        
+        .select-styled option {
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            font-family: 'Outfit', sans-serif;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            background: var(--primary);
+            color: #000;
+            border-color: var(--primary);
+            box-shadow: 0 0 15px rgba(93, 220, 255, 0.4);
+        }
+
+        .log-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 11px;
+            height: 150px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: #ace;
+        }
+
+        .loader-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s;
+        }
+
+        .loader {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(93, 220, 255, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loaded .loader-overlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loader" class="loader-overlay">
+        <div class="loader"></div>
+        <p style="margin-top: 20px; color: var(--primary);">Initializing Offline AI Core...</p>
+    </div>
+
+    <header>
+        <h1>USB CAPTURE AI (OFFLINE)</h1>
+        <div class="brand">Powered By <span style="color: var(--accent);">@Harry's VR</span></div>
+    </header>
+
+    <main class="main-container">
+        <div class="detection-card">
+            <div class="status-badge" id="ai-status">
+                <div class="pulse"></div>
+                OFFLINE READY
+            </div>
+            <div class="video-wrapper" id="video-wrapper">
+                <video id="video" autoplay playsinline muted></video>
+                <div class="vr-split">
+                    <canvas id="canvas-left"></canvas>
+                    <canvas id="canvas-right"></canvas>
+                </div>
+            </div>
+            <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+                <div id="detection-msg" style="font-size: 13px; color: var(--text-muted);">Detecting objects...</div>
+                <div id="fps-display" style="font-size: 12px; font-weight: 300;">0 FPS</div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="card">
+                <div class="card-title">Camera Settings</div>
+                <select id="camera-select" class="select-styled">
+                    <option value="">Select Camera...</option>
+                </select>
+                <button id="refresh-btn" class="btn" style="background: transparent; border-color: var(--text-muted);">Refresh Cameras</button>
+                <button id="start-btn" class="btn">Start Camera</button>
+                <button id="vr-btn" class="btn" style="background: var(--accent); color: #fff; margin-top: 10px;">Enter VR Fullscreen</button>
+            </div>
+
+            <div class="card">
+                <div class="card-title">System Log</div>
+                <div id="log" class="log-panel">
+                    Offline system initialized.<br>
+                    Make sure js/ and models/ are set up.<br>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let model = null;
+        let lastTimestamp = 0;
+        let isDetecting = false;
+
+        const video = document.getElementById("video");
+        const canvasLeft = document.getElementById("canvas-left");
+        const ctxLeft = canvasLeft.getContext("2d", { alpha: false });
+        const canvasRight = document.getElementById("canvas-right");
+        const ctxRight = canvasRight.getContext("2d", { alpha: false });
+        const logPanel = document.getElementById("log");
+        const videoWrapper = document.getElementById("video-wrapper");
+        const fpsDisplay = document.getElementById("fps-display");
+        const cameraSelect = document.getElementById("camera-select");
+        const startBtn = document.getElementById("start-btn");
+        const refreshBtn = document.getElementById("refresh-btn");
+
+        function log(msg) {
+            const time = new Date().toLocaleTimeString([], { hour12: false });
+            logPanel.innerHTML += `[${time}] ${msg}<br>`;
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
+
+        // Initialize TF.js Backend
+        async function initTF() {
+            try {
+                await tf.setBackend('webgl');
+                await tf.ready();
+                log("TF.js Backend: " + tf.getBackend());
+            } catch (e) {
+                log("WebGL fallback to CPU...");
+                await tf.setBackend('cpu');
+            }
+        }
+
+        // Enumerate devices to find USB capture cards and mobile cameras
+        async function getCameras() {
+            try {
+                try {
+                    const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    tempStream.getTracks().forEach(track => track.stop());
+                } catch(e) {
+                    log("Camera permission denied.");
+                }
+                
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                
+                cameraSelect.innerHTML = '';
+                cameraSelect.innerHTML += '<option value="environment">📱 Rear Camera (後鏡頭)</option>';
+                cameraSelect.innerHTML += '<option value="user">📱 Front Camera (前鏡頭)</option>';
+                
+                if(videoDevices.length > 0) {
+                    videoDevices.forEach((device, index) => {
+                        const option = document.createElement('option');
+                        option.value = device.deviceId;
+                        option.text = `🔌 ${device.label || 'Camera ' + (index + 1)}`;
+                        cameraSelect.appendChild(option);
+                    });
+                    log(`Found ${videoDevices.length} cameras.`);
+                } else {
+                    log("No external cameras detected.");
+                }
+            } catch (err) {
+                log("Error getting cameras: " + err.message);
+            }
+        }
+
+        refreshBtn.addEventListener('click', getCameras);
+
+        async function startCamera() {
+            const selectedValue = cameraSelect.value;
+            if (!selectedValue) {
+                log("Please select a camera first.");
+                return;
+            }
+
+            let constraints = {
+                video: {
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                }
+            };
+
+            if (selectedValue === 'user' || selectedValue === 'environment') {
+                constraints.video.facingMode = { ideal: selectedValue };
+            } else {
+                constraints.video.deviceId = { exact: selectedValue };
+            }
+
+            try {
+                if (video.srcObject) {
+                    video.srcObject.getTracks().forEach(track => track.stop());
+                }
+
+                log("Starting stream...");
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    video.play();
+                    log("Camera stream started.");
+                    if(!isDetecting) {
+                        isDetecting = true;
+                        lastTimestamp = performance.now();
+                        detectLoop();
+                    }
+                };
+            } catch (err) {
+                log("Camera Error: " + err.message);
+            }
+        }
+
+        startBtn.addEventListener('click', startCamera);
+        
+        document.getElementById("vr-btn").addEventListener('click', () => {
+            if (videoWrapper.requestFullscreen) {
+                videoWrapper.requestFullscreen();
+            } else if (videoWrapper.webkitRequestFullscreen) {
+                videoWrapper.webkitRequestFullscreen();
+            }
+        });
+
+        async function detectLoop() {
+            if (!model || !isDetecting || video.paused || video.ended) {
+                requestAnimationFrame(detectLoop);
+                return;
+            }
+
+            const now = performance.now();
+            const elapsed = now - lastTimestamp;
+            lastTimestamp = now;
+            const fps = Math.round(1000 / elapsed);
+            if(fps < 100) fpsDisplay.innerText = `${fps} FPS`;
+
+            try {
+                const predictions = await model.detect(video);
+                renderCanvas(predictions, fps);
+            } catch (err) {}
+
+            requestAnimationFrame(detectLoop);
+        }
+
+        function renderCanvas(predictions, currentFps) {
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            
+            if (videoWidth === 0 || videoHeight === 0) return;
+
+            if (canvasLeft.width !== videoWidth || canvasLeft.height !== videoHeight) {
+                canvasLeft.width = videoWidth;
+                canvasLeft.height = videoHeight;
+                canvasRight.width = videoWidth;
+                canvasRight.height = videoHeight;
+            }
+
+            function drawScene(ctx, canvas) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                predictions.forEach((prediction) => {
+                    const [x, y, width, height] = prediction.bbox;
+                    
+                    let className = prediction.class;
+                    if (className === "airplane" || className === "bird" || className === "kite") {
+                        className = "drone";
+                    }
+
+                    ctx.shadowColor = "black";
+                    ctx.shadowBlur = 6;
+                    ctx.strokeStyle = "#5ddcff";
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(x, y, width, height);
+                    ctx.shadowBlur = 0;
+
+                    ctx.fillStyle = "#5ddcff";
+                    const text = `${className} ${Math.round(prediction.score * 100)}%`;
+                    ctx.font = "bold 16px Outfit, sans-serif";
+                    const textWidth = ctx.measureText(text).width;
+                    ctx.fillRect(x, y - 30 > 0 ? y - 30 : y, textWidth + 12, 30);
+
+                    ctx.fillStyle = "#000000";
+                    ctx.fillText(text, x + 6, (y - 30 > 0 ? y - 30 : y) + 22);
+                });
+
+                if (currentFps !== undefined) {
+                    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                    ctx.fillRect(10, 10, 90, 30);
+                    ctx.fillStyle = "#5ddcff";
+                    ctx.font = "bold 16px Outfit, sans-serif";
+                    ctx.fillText(`FPS: ${currentFps}`, 20, 31);
+                }
+            }
+
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
+                drawScene(ctxLeft, canvasLeft);
+                drawScene(ctxRight, canvasRight);
+            } else {
+                drawScene(ctxLeft, canvasLeft);
+            }
+
+            const badge = document.getElementById('ai-status');
+            if (predictions.length > 0) {
+                badge.style.color = '#fe4066';
+                badge.querySelector('.pulse').style.background = '#fe4066';
+                document.getElementById('detection-msg').innerText = `Detected ${predictions.length} object(s)`;
+            } else {
+                badge.style.color = '#5ddcff';
+                badge.querySelector('.pulse').style.background = '#5ddcff';
+                document.getElementById('detection-msg').innerText = `Detecting objects...`;
+            }
+        }
+
+        async function bootstrap() {
+            await initTF();
+            log("Loading Offline Model...");
+            try {
+                // To load offline, you MUST provide the path to your local model.json
+                // and the associated weight files must be in the same folder.
+                model = await cocoSsd.load({ 
+                    modelUrl: 'models/coco-ssd/model.json' 
+                });
+                log("Offline Model Ready.");
+            } catch (err) {
+                log("Error loading offline model: " + err.message);
+                log("Falling back to default (might require internet)...");
+                model = await cocoSsd.load({ base: 'mobilenet_v2' });
+            }
+            
+            await getCameras();
+            document.body.classList.add('loaded');
+        }
+
+        window.onload = bootstrap;
+    </script>
+</body>
+
+</html>

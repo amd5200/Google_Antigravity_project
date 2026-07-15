@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>USB Capture AI Detection | Harry's VR</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #5ddcff;
+            --accent: #fe4066;
+            --bg: #0a0a0c;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --text: #e0e0e0;
+            --text-muted: #888;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(93, 220, 255, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(254, 64, 102, 0.05) 0%, transparent 40%);
+            margin: 0;
+            padding: 0;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            padding: 20px;
+            text-align: center;
+            background: rgba(10, 10, 12, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+
+        .main-container {
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        @media (min-width: 1024px) {
+            .main-container {
+                grid-template-columns: 3fr 1fr;
+            }
+        }
+
+        .detection-card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            padding-bottom: 75%;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .video-wrapper:fullscreen {
+            padding-bottom: 0;
+            height: 100vh;
+            border-radius: 0;
+            background: #000;
+        }
+
+        .video-wrapper:-webkit-full-screen {
+            padding-bottom: 0;
+            height: 100vh;
+            border-radius: 0;
+            background: #000;
+        }
+
+        #video {
+            display: none;
+        }
+
+        .vr-split {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: row;
+            pointer-events: none;
+        }
+
+        .vr-split canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        .vr-split canvas#canvas-left {
+            display: block;
+        }
+
+        .video-wrapper:fullscreen .vr-split canvas,
+        .video-wrapper:-webkit-full-screen .vr-split canvas {
+            width: 50%;
+            display: block;
+        }
+
+        .status-badge {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--primary);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: pulse-ring 1.5s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0.5; }
+        }
+
+        .control-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px;
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .select-styled {
+            width: 100%;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text);
+            border-radius: 8px;
+            font-family: 'Outfit', sans-serif;
+            outline: none;
+            margin-bottom: 10px;
+        }
+        
+        .select-styled option {
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            font-family: 'Outfit', sans-serif;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            background: var(--primary);
+            color: #000;
+            border-color: var(--primary);
+            box-shadow: 0 0 15px rgba(93, 220, 255, 0.4);
+        }
+
+        .log-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 11px;
+            height: 150px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: #ace;
+        }
+
+        .loader-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s;
+        }
+
+        .loader {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(93, 220, 255, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loaded .loader-overlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .warning-box {
+            background: rgba(254, 64, 102, 0.1);
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .warning-box b {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loader" class="loader-overlay">
+        <div class="loader"></div>
+        <p style="margin-top: 20px; color: var(--primary);">Initializing AI Core...</p>
+    </div>
+
+    <header>
+        <h1>USB CAPTURE AI</h1>
+        <div class="brand">Powered By <span style="color: var(--accent);">@Harry's VR</span></div>
+    </header>
+
+    <main class="main-container">
+        <div id="secure-warning" class="warning-box">
+            <b>⚠️ Insecure Context Detected</b>
+            Camera access is BLOCKED by the browser unless using <b>HTTPS</b> or <b>localhost</b>.<br>
+            Please check the README for "Solution 1" or "Solution 2".
+        </div>
+        <div class="detection-card">
+            <div class="status-badge" id="ai-status">
+                <div class="pulse"></div>
+                AI READY
+            </div>
+            <div class="video-wrapper" id="video-wrapper">
+                <video id="video" autoplay playsinline muted></video>
+                <div class="vr-split">
+                    <canvas id="canvas-left"></canvas>
+                    <canvas id="canvas-right"></canvas>
+                </div>
+            </div>
+            <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+                <div id="detection-msg" style="font-size: 13px; color: var(--text-muted);">Detecting objects...</div>
+                <div id="fps-display" style="font-size: 12px; font-weight: 300;">0 FPS</div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="card">
+                <div class="card-title">Camera Settings</div>
+                <select id="camera-select" class="select-styled">
+                    <option value="">Select Camera...</option>
+                </select>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <button id="refresh-btn" class="btn" style="background: transparent; border-color: var(--text-muted); margin-bottom: 0;">Refresh</button>
+                    <button id="deep-scan-btn" class="btn" style="background: transparent; border-color: var(--accent); color: var(--accent); margin-bottom: 0;">Deep Scan</button>
+                </div>
+                <button id="usb-probe-btn" class="btn" style="background: rgba(93, 220, 255, 0.1); border-color: var(--primary); color: var(--primary); margin-top: 10px;">🔍 Probe USB Hardware</button>
+                <button id="start-btn" class="btn" style="margin-top: 10px;">Start Camera</button>
+                <button id="vr-btn" class="btn" style="background: var(--accent); color: #fff; margin-top: 10px;">Enter VR Fullscreen</button>
+            </div>
+
+            <div class="card">
+                <div class="card-title">System Log</div>
+                <div id="log" class="log-panel">
+                    System initialized.<br>
+                    Waiting for camera selection...<br>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let model = null;
+        let lastTimestamp = 0;
+        let isDetecting = false;
+
+        const video = document.getElementById("video");
+        const canvasLeft = document.getElementById("canvas-left");
+        const ctxLeft = canvasLeft.getContext("2d", { alpha: false });
+        const canvasRight = document.getElementById("canvas-right");
+        const ctxRight = canvasRight.getContext("2d", { alpha: false });
+        const logPanel = document.getElementById("log");
+        const videoWrapper = document.getElementById("video-wrapper");
+        const fpsDisplay = document.getElementById("fps-display");
+        const cameraSelect = document.getElementById("camera-select");
+        const startBtn = document.getElementById("start-btn");
+        const refreshBtn = document.getElementById("refresh-btn");
+
+        function log(msg) {
+            const time = new Date().toLocaleTimeString([], { hour12: false });
+            logPanel.innerHTML += `[${time}] ${msg}<br>`;
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
+
+        // Initialize TF.js Backend
+        async function initTF() {
+            try {
+                await tf.setBackend('webgl');
+                await tf.ready();
+                log("TF.js Backend: " + tf.getBackend());
+            } catch (e) {
+                log("WebGL fallback to CPU...");
+                await tf.setBackend('cpu');
+            }
+        }
+
+        // Enumerate devices to find USB capture cards and mobile cameras
+        async function getCameras() {
+            log("--- Scanning Environment ---");
+            log("Protocol: " + location.protocol);
+            log("Secure Context: " + window.isSecureContext);
+            log("User Agent: " + (navigator.userAgent.includes("Chrome") ? "Chrome detected" : "Non-Chrome"));
+            
+            try {
+                // Request initial permission to ensure labels are populated
+                try {
+                    log("Requesting generic permission...");
+                    const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    tempStream.getTracks().forEach(track => track.stop());
+                    log("✅ Basic Permission OK.");
+                } catch(e) {
+                    log("⚠️ Permission check: " + e.name + " - " + e.message);
+                }
+                
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                
+                cameraSelect.innerHTML = '<option value="">Select Camera...</option>';
+                cameraSelect.innerHTML += '<option value="environment">📱 Auto Rear (後鏡頭)</option>';
+                cameraSelect.innerHTML += '<option value="user">📱 Auto Front (前鏡頭)</option>';
+                
+                log(`Found ${videoDevices.length} device(s).`);
+                
+                if(videoDevices.length > 0) {
+                    videoDevices.forEach((device, index) => {
+                        const option = document.createElement('option');
+                        option.value = device.deviceId;
+                        const label = device.label || `Camera ${index + 1} (No Label)`;
+                        
+                        let icon = "🔌";
+                        const lowerLabel = label.toLowerCase();
+                        if (lowerLabel.includes("front") || lowerLabel.includes("user")) icon = "📱";
+                        if (lowerLabel.includes("back") || lowerLabel.includes("rear") || lowerLabel.includes("environment")) icon = "📱";
+                        
+                        option.text = `${icon} ${label}`;
+                        cameraSelect.appendChild(option);
+                        log(`-> Detected: ${label}`);
+                    });
+                } else {
+                    log("❌ No devices returned. Check OTG/Cable.");
+                }
+            } catch (err) {
+                log("Error enumerating cameras: " + err.message);
+                console.error(err);
+            }
+        }
+
+        async function deepScan() {
+            log("--- Running Deep Scan ---");
+            log("Trying to force-open any external camera...");
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: { ideal: "environment" },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    } 
+                });
+                video.srcObject = stream;
+                video.play();
+                log("✅ Generic stream started. Check if this is the USB camera!");
+                await getCameras();
+            } catch (e) {
+                log("Deep Scan Error: " + e.message);
+            }
+        }
+
+        async function probeUSB() {
+            log("--- Raw USB Hardware Probe ---");
+            if (!navigator.usb) {
+                log("❌ WebUSB not supported.");
+                return;
+            }
+            try {
+                log("Requesting USB device list...");
+                const device = await navigator.usb.requestDevice({ filters: [] });
+                log(`✅ Found Hardware: ${device.productName || "Unknown Device"}`);
+                log(`- VendorID: ${device.vendorId}`);
+                log(`- ProductID: ${device.productId}`);
+                
+                log("--- Troubleshooting ---");
+                log("If device is listed here but NOT in the Camera list above:");
+                log("1. **OTG Power**: Webcams (like Logitech) require more power than capture cards. Use a powered OTG hub.");
+                log("2. **Android OTG Settings**: Go to Android System Settings and search for 'OTG', ensure it is turned ON.");
+                log("3. **UVC Support**: If the device is very old, it might not be UVC compliant. Most modern webcams are.");
+                log("4. **Permission**: Refresh the page and ensure you 'Allow' camera access.");
+            } catch (e) {
+                log("Probe Note: " + e.message);
+            }
+        }
+
+        refreshBtn.addEventListener('click', getCameras);
+        document.getElementById('deep-scan-btn').addEventListener('click', deepScan);
+        document.getElementById('usb-probe-btn').addEventListener('click', probeUSB);
+
+        async function startCamera() {
+            const selectedValue = cameraSelect.value;
+            if (!selectedValue) {
+                log("Please select a camera first.");
+                return;
+            }
+
+            let constraints = {
+                video: {
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                }
+            };
+
+            // 判斷是內建鏡頭 (facingMode) 還是具體設備 (deviceId)
+            if (selectedValue === 'user' || selectedValue === 'environment') {
+                constraints.video.facingMode = { ideal: selectedValue };
+            } else {
+                constraints.video.deviceId = { exact: selectedValue };
+            }
+
+            try {
+                if (video.srcObject) {
+                    video.srcObject.getTracks().forEach(track => track.stop());
+                }
+
+                log(`Starting stream [${selectedValue}]...`);
+                const constraints = {
+                    video: {
+                        deviceId: selectedValue === 'user' || selectedValue === 'environment' ? undefined : { ideal: selectedValue },
+                        facingMode: selectedValue === 'user' || selectedValue === 'environment' ? { ideal: selectedValue } : undefined,
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        frameRate: { ideal: 30 }
+                    }
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    video.play();
+                    const settings = stream.getVideoTracks()[0].getSettings();
+                    log(`✅ Stream: ${settings.width}x${settings.height} @ ${Math.round(settings.frameRate || 0)}fps`);
+                    
+                    if(!isDetecting) {
+                        isDetecting = true;
+                        lastTimestamp = performance.now();
+                        detectLoop();
+                    }
+                };
+            } catch (err) {
+                log("❌ Camera Error: " + err.name);
+                log("Detail: " + err.message);
+                if (err.name === 'OverconstrainedError') {
+                    log("Retrying with minimal constraints...");
+                    const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    video.srcObject = fallbackStream;
+                    video.play();
+                }
+                console.error(err);
+            }
+        }
+
+        startBtn.addEventListener('click', startCamera);
+        
+        document.getElementById("vr-btn").addEventListener('click', () => {
+            if (videoWrapper.requestFullscreen) {
+                videoWrapper.requestFullscreen();
+            } else if (videoWrapper.webkitRequestFullscreen) { /* Safari */
+                videoWrapper.webkitRequestFullscreen();
+            }
+        });
+
+        // Listen for fullscreen changes to adjust layout
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) {
+                log("Exited VR Fullscreen.");
+            } else {
+                log("Entered VR Fullscreen.");
+            }
+        });
+        document.addEventListener('webkitfullscreenchange', () => {
+            if (!document.webkitFullscreenElement) {
+                log("Exited VR Fullscreen.");
+            } else {
+                log("Entered VR Fullscreen.");
+            }
+        });
+
+        async function detectLoop() {
+            if (!model || !isDetecting || video.paused || video.ended) {
+                requestAnimationFrame(detectLoop);
+                return;
+            }
+
+            const now = performance.now();
+            const elapsed = now - lastTimestamp;
+            lastTimestamp = now;
+            const fps = Math.round(1000 / elapsed);
+            if(fps < 100) fpsDisplay.innerText = `${fps} FPS`;
+
+            try {
+                const predictions = await model.detect(video);
+                renderCanvas(predictions, fps);
+            } catch (err) {
+                // Ignore detection errors during video loading
+            }
+
+            requestAnimationFrame(detectLoop);
+        }
+
+        function renderCanvas(predictions, currentFps) {
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            
+            if (videoWidth === 0 || videoHeight === 0) return;
+
+            if (canvasLeft.width !== videoWidth || canvasLeft.height !== videoHeight) {
+                canvasLeft.width = videoWidth;
+                canvasLeft.height = videoHeight;
+                canvasRight.width = videoWidth;
+                canvasRight.height = videoHeight;
+            }
+
+            function drawScene(ctx, canvas) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                predictions.forEach((prediction) => {
+                    const [x, y, width, height] = prediction.bbox;
+                    
+                    let className = prediction.class;
+                    if (className === "airplane" || className === "bird" || className === "kite") {
+                        className = "drone";
+                    }
+
+                    ctx.shadowColor = "black";
+                    ctx.shadowBlur = 6;
+                    ctx.strokeStyle = "#5ddcff";
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(x, y, width, height);
+                    ctx.shadowBlur = 0;
+
+                    ctx.fillStyle = "#5ddcff";
+                    const text = `${className} ${Math.round(prediction.score * 100)}%`;
+                    ctx.font = "bold 16px Outfit, sans-serif";
+                    const textWidth = ctx.measureText(text).width;
+                    ctx.fillRect(x, y - 30 > 0 ? y - 30 : y, textWidth + 12, 30);
+
+                    ctx.fillStyle = "#000000";
+                    ctx.fillText(text, x + 6, (y - 30 > 0 ? y - 30 : y) + 22);
+                });
+
+                if (currentFps !== undefined) {
+                    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                    ctx.fillRect(10, 10, 90, 30);
+                    ctx.fillStyle = "#5ddcff";
+                    ctx.font = "bold 16px Outfit, sans-serif";
+                    ctx.fillText(`FPS: ${currentFps}`, 20, 31);
+                }
+            }
+
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
+                drawScene(ctxLeft, canvasLeft);
+                drawScene(ctxRight, canvasRight);
+            } else {
+                drawScene(ctxLeft, canvasLeft);
+            }
+
+            // UI Feedback
+            const badge = document.getElementById('ai-status');
+            if (predictions.length > 0) {
+                badge.style.color = '#fe4066';
+                badge.querySelector('.pulse').style.background = '#fe4066';
+                document.getElementById('detection-msg').innerText = `Detected ${predictions.length} object(s)`;
+            } else {
+                badge.style.color = '#5ddcff';
+                badge.querySelector('.pulse').style.background = '#5ddcff';
+                document.getElementById('detection-msg').innerText = `Detecting objects...`;
+            }
+        }
+
+        async function bootstrap() {
+            if (!window.isSecureContext) {
+                document.getElementById('secure-warning').style.display = 'block';
+                log("❌ FATAL: Not in a Secure Context. Camera will not work.");
+            }
+
+            await initTF();
+            log("Loading Model...");
+            model = await cocoSsd.load({ base: 'mobilenet_v2' });
+            log("Model Ready.");
+            
+            await getCameras();
+
+            document.body.classList.add('loaded');
+        }
+
+        // Initialize when window loads
+        window.onload = bootstrap;
+    </script>
+</body>
+
+</html>
